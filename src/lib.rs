@@ -4,10 +4,9 @@ use std::{
     marker::PhantomData,
 };
 
-use bevy_app::{App, Plugin, Update};
+use bevy_app::{App, Plugin};
 use bevy_asset::DirectAssetAccessExt;
 use bevy_ecs::{
-    bundle::Bundle,
     component::{Component, HookContext},
     entity::Entity,
     observer::Trigger,
@@ -39,11 +38,13 @@ use bevy_state::{
 
 /// Plugin to create all the required systems for using a custom compute shader.
 pub struct ComputeShaderPlugin<S: ComputeShader> {
-    _marker: PhantomData<S>,
+    pub limit: ReadbackLimit,
+    pub _marker: PhantomData<S>,
 }
 impl<S: ComputeShader> Default for ComputeShaderPlugin<S> {
     fn default() -> Self {
         Self {
+            limit: ReadbackLimit::default(),
             _marker: PhantomData,
         }
     }
@@ -53,10 +54,13 @@ impl<S: ComputeShader> Plugin for ComputeShaderPlugin<S> {
         app.init_resource::<S>()
             .add_plugins(ExtractResourcePlugin::<S>::default())
             .init_state::<ComputeNodeState<S>>()
-            .add_systems(Update, ComputeShaderReadback::<S>::update)
             .add_systems(
                 OnEnter(ComputeNodeState::<S>::from(ComputeNodeStatus::Ready)),
                 ComputeShaderReadback::<S>::on_shader_ready,
+            )
+            .add_systems(
+                OnEnter(ComputeNodeState::<S>::from(ComputeNodeStatus::Completed)),
+                ComputeShaderReadback::<S>::on_shader_complete,
             );
     }
 
@@ -86,13 +90,16 @@ impl<S: ComputeShader> Plugin for ComputeShaderPlugin<S> {
             .resource_mut::<RenderGraph>()
             .add_node(
                 ComputeNodeLabel::<S>::default(),
-                ComputeNode::<S>::default(),
+                ComputeNode::<S> {
+                    limit: self.limit,
+                    ..Default::default()
+                },
             );
     }
 }
 
 /// How many readbacks should be sent per initialization of the shader.
-#[derive(Default)]
+#[derive(Default, Debug, Copy, Clone)]
 pub enum ReadbackLimit {
     /// No limit, readback will continue indefinitely.
     #[default]
@@ -105,17 +112,11 @@ pub enum ReadbackLimit {
 #[derive(Component)]
 #[component(on_add = ComputeShaderReadback::<S>::on_add )]
 pub struct ComputeShaderReadback<S: ComputeShader> {
-    /// Limit for the number of readbacks.
-    pub limit: ReadbackLimit,
-    /// Number of frames that the readback has been sent for.
-    pub count: usize,
     pub _marker: PhantomData<S>,
 }
 impl<S: ComputeShader> Default for ComputeShaderReadback<S> {
     fn default() -> Self {
         Self {
-            limit: ReadbackLimit::default(),
-            count: 0,
             _marker: PhantomData,
         }
     }
@@ -128,32 +129,25 @@ impl<S: ComputeShader> ComputeShaderReadback<S> {
             .entity(context.entity)
             .observe(S::on_readback);
     }
-    /// Process readback limit count.
-    fn update(
-        mut commands: Commands,
-        mut compute_shader_readbacks: Query<(Entity, &mut Self), With<Readback>>,
-    ) {
-        for (entity, mut compute_shader_readback) in compute_shader_readbacks.iter_mut() {
-            match compute_shader_readback.limit {
-                ReadbackLimit::Finite(limit) => {
-                    compute_shader_readback.count += 1;
-                    if compute_shader_readback.count > limit {
-                        commands.entity(entity).remove::<Readback>();
-                    }
-                }
-                ReadbackLimit::Infinite => {}
-            }
-        }
-    }
     /// Insert GPU readback component only when the shader is ready.
     fn on_shader_ready(
         mut commands: Commands,
         compute_shader: Res<S>,
-        mut compute_shader_readbacks: Query<(Entity, &mut Self)>,
+        mut compute_shader_readbacks: Query<Entity, With<Self>>,
     ) {
-        for (entity, mut compute_shader_readback) in compute_shader_readbacks.iter_mut() {
-            compute_shader_readback.count = 0;
-            commands.entity(entity).insert(compute_shader.readbacks());
+        for entity in compute_shader_readbacks.iter_mut() {
+            if let Some(readback) = compute_shader.readback() {
+                commands.entity(entity).insert(readback);
+            }
+        }
+    }
+    /// Disable the shader when it's done.
+    fn on_shader_complete(
+        mut commands: Commands,
+        mut compute_shader_readbacks: Query<Entity, With<Self>>,
+    ) {
+        for entity in compute_shader_readbacks.iter_mut() {
+            commands.entity(entity).remove::<Readback>();
         }
     }
 }
@@ -181,7 +175,9 @@ pub trait ComputeShader: AsBindGroup + Clone + Debug + FromWorld + ExtractResour
         });
     }
     /// Optional readbacks.
-    fn readbacks(&self) -> impl Bundle {}
+    fn readback(&self) -> Option<Readback> {
+        None
+    }
     /// Optional processing on readback. Could write back to the CPU buffer, etc.
     fn on_readback(_trigger: Trigger<ReadbackComplete>, mut _world: DeferredWorld) {}
 }
@@ -200,6 +196,7 @@ pub enum ComputeNodeStatus {
     Loading,
     Init,
     Ready,
+    Completed,
     Error,
 }
 /// Tracks compute node state.
@@ -307,12 +304,16 @@ impl<S: ComputeShader> Hash for ComputeNodeLabel<S> {
 /// Updates `ComputeNodeState<S>` in the `RenderWorld`.
 struct ComputeNode<S: ComputeShader> {
     status: ComputeNodeStatus,
+    limit: ReadbackLimit,
+    count: usize,
     _marker: PhantomData<S>,
 }
 impl<S: ComputeShader> Default for ComputeNode<S> {
     fn default() -> Self {
         Self {
             status: ComputeNodeStatus::default(),
+            limit: ReadbackLimit::Infinite,
+            count: 0,
             _marker: PhantomData,
         }
     }
@@ -323,7 +324,19 @@ impl<S: ComputeShader> render_graph::Node for ComputeNode<S> {
         let pipeline_cache = world.resource::<PipelineCache>();
 
         let next_status = match pipeline_cache.get_compute_pipeline_state(pipeline.pipeline) {
-            CachedPipelineState::Ok(_) => ComputeNodeStatus::Ready,
+            CachedPipelineState::Ok(_) => match (self.status, self.limit) {
+                (ComputeNodeStatus::Completed, _) => ComputeNodeStatus::Completed,
+                (_, ReadbackLimit::Finite(limit)) => {
+                    if self.count < limit {
+                        self.count += 1;
+                        ComputeNodeStatus::Ready
+                    } else {
+                        self.count = 0;
+                        ComputeNodeStatus::Completed
+                    }
+                }
+                _ => ComputeNodeStatus::Ready,
+            },
             CachedPipelineState::Creating(_) => ComputeNodeStatus::Loading,
             CachedPipelineState::Queued => ComputeNodeStatus::Loading,
             CachedPipelineState::Err(_) => ComputeNodeStatus::Error,

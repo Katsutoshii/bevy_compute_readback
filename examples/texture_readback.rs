@@ -21,7 +21,10 @@ fn main() {
     app.add_plugins((
         DefaultPlugins,
         // Initialize compute shader pipeline.
-        ComputeShaderPlugin::<CustomComputeShader>::default(),
+        ComputeShaderPlugin::<CustomComputeShader> {
+            limit: ReadbackLimit::Finite(1),
+            ..default()
+        },
     ))
     .insert_resource(ClearColor(Color::BLACK))
     .add_systems(Startup, setup)
@@ -30,10 +33,7 @@ fn main() {
 
 /// Create the readback entity to receive updates from CustomComputeShader.
 fn setup(mut commands: Commands) {
-    commands.spawn(ComputeShaderReadback::<CustomComputeShader> {
-        limit: ReadbackLimit::Finite(1),
-        ..default()
-    });
+    commands.spawn(ComputeShaderReadback::<CustomComputeShader>::default());
 }
 
 /// Converts an image to RGBA so it can be saved as a PNG.
@@ -64,8 +64,8 @@ impl ComputeShader for CustomComputeShader {
     fn workgroup_size() -> UVec3 {
         UVec3::new(64, 64, 1)
     }
-    fn readbacks(&self) -> impl Bundle {
-        Readback::texture(self.texture.clone())
+    fn readback(&self) -> Option<Readback> {
+        Some(Readback::texture(self.texture.clone()))
     }
     fn on_readback(trigger: Trigger<ReadbackComplete>, mut world: DeferredWorld) {
         let data: Vec<u8> = trigger.event().0.clone();
