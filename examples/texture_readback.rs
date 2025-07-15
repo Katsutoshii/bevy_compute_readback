@@ -15,19 +15,19 @@ use bevy_compute_readback::{ComputeShader, ComputeShaderPlugin, ReadbackLimit};
 use image::DynamicImage;
 
 fn main() {
-    let mut app = App::new();
-    app.add_plugins((
-        DefaultPlugins,
-        // Initialize compute shader pipeline.
-        ComputeShaderPlugin::<CustomComputeShader> {
-            limit: ReadbackLimit::Finite(1),
-            remove_on_complete: false,
-            ..default()
-        },
-    ))
-    .insert_resource(ClearColor(Color::BLACK))
-    .add_systems(Startup, setup)
-    .run();
+    App::new()
+        .add_plugins((
+            DefaultPlugins,
+            // Initialize compute shader pipeline.
+            ComputeShaderPlugin::<CustomComputeShader> {
+                limit: ReadbackLimit::Finite(1),
+                remove_on_complete: false,
+                ..default()
+            },
+        ))
+        .insert_resource(ClearColor(Color::BLACK))
+        .add_systems(Startup, setup)
+        .run();
 }
 
 /// Visualize the compute shader output as a sprite.

@@ -12,45 +12,46 @@ This based on the GPU readback example ([gpu_readback.rs](https://github.com/bev
 
 ```rs
 use bevy_compute_readback::{
-    ComputeShader, ComputeShaderPlugin, ComputeShaderReadback, ReadbackLimit
+    ComputeShader, ComputeShaderPlugin, ReadbackLimit
 };
 
-// Create a resource to store your shader inputs and derive AsBindGroup.
+/// Custom compute shader input.
 #[derive(AsBindGroup, Resource, Clone, Debug, ExtractResource)]
 pub struct CustomComputeShader {
-    #[storage_texture(0, image_format=Rgba8Uint, access=WriteOnly)]
+    // Texture for the GPU to write to.
+    #[storage_texture(0, image_format=Rgba32Float, access=WriteOnly)]
     texture: Handle<Image>,
 }
-
-// Implement ComputeShader for your custom shader
 impl ComputeShader for CustomComputeShader {
+    /// Path to your compute shader WGSL file.
     fn compute_shader() -> ShaderRef {
-        "shaders/some_custom_shader.wgsl".into()
+        "shaders/texture_readback.wgsl".into()
     }
+    /// Workgroup size for the compute shader.
     fn workgroup_size() -> UVec3 {
         UVec3::new(64, 64, 1)
     }
-    fn readbacks(&self) -> impl Bundle {
-        // Define which inputs should be read back to CPU.
-        Readback::texture(self.texture.clone())
+    /// Indicate which buffer/texture should be read back to CPU.
+    fn readback(&self) -> Option<Readback> {
+        Some(Readback::texture(self.texture.clone()))
     }
+    /// Handle readback events.
     fn on_readback(trigger: Trigger<ReadbackComplete>, mut world: DeferredWorld) {
-        // Do something with the readback data.
+        // ...
     }
 }
 
-/// Create the readback entity to receive updates from CustomComputeShader.
-fn setup(mut commands: Commands) {
-    commands.spawn(ComputeShaderReadback::<CustomComputeShader> {
-        limit: ReadbackLimit::Finite(1),
-        ..default()
-    });
+fn main() {
+    App::new()
+        .add_plugins((
+            ComputeShaderPlugin::<CustomComputeShader> {
+                limit: ReadbackLimit::Finite(1),
+                remove_on_complete: false,
+                ..default()
+            },
+        ))
+        .run();
 }
-
-/// In your app, add ComputeShaderPlugin.
-app.add_plugins((
-    ComputeShaderPlugin::<CustomComputeShader>::default(),
-));
 ```
 
 See `examples` for a working demo.
@@ -59,4 +60,4 @@ See `examples` for a working demo.
 
 | bevy | bevy_compute_readback |
 | ---- | --------------------- |
-| 0.16 | 0.1.0                 |
+| 0.16 | 0.1.1                 |
