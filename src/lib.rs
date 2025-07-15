@@ -1,13 +1,14 @@
+//! Library to simplify compute shader readbacks.
 use std::{
     fmt::Debug,
     hash::{Hash, Hasher},
     marker::PhantomData,
 };
 
-use bevy_app::{App, Plugin};
+use bevy_app::{App, Plugin, Startup};
 use bevy_asset::DirectAssetAccessExt;
 use bevy_ecs::{
-    component::{Component, HookContext},
+    component::Component,
     entity::Entity,
     observer::Trigger,
     query::With,
@@ -39,12 +40,14 @@ use bevy_state::{
 /// Plugin to create all the required systems for using a custom compute shader.
 pub struct ComputeShaderPlugin<S: ComputeShader> {
     pub limit: ReadbackLimit,
+    pub remove_on_complete: bool,
     pub _marker: PhantomData<S>,
 }
 impl<S: ComputeShader> Default for ComputeShaderPlugin<S> {
     fn default() -> Self {
         Self {
             limit: ReadbackLimit::default(),
+            remove_on_complete: false,
             _marker: PhantomData,
         }
     }
@@ -61,7 +64,8 @@ impl<S: ComputeShader> Plugin for ComputeShaderPlugin<S> {
             .add_systems(
                 OnEnter(ComputeNodeState::<S>::from(ComputeNodeStatus::Completed)),
                 ComputeShaderReadback::<S>::on_shader_complete,
-            );
+            )
+            .add_systems(Startup, ComputeShaderReadback::<S>::spawn);
     }
 
     fn finish(&self, app: &mut App) {
@@ -95,6 +99,15 @@ impl<S: ComputeShader> Plugin for ComputeShaderPlugin<S> {
                     ..Default::default()
                 },
             );
+
+        // If the compute node should be removed on completion, schedule the removal systems.
+        if self.remove_on_complete {
+            render_app.add_systems(
+                ExtractSchedule,
+                ComputeNodeLabel::<S>::remove_on_complete
+                    .run_if(resource_changed::<ComputeNodeState<S>>),
+            );
+        }
     }
 }
 
@@ -110,7 +123,6 @@ pub enum ReadbackLimit {
 
 /// Component that receives readback events from the compute shader.
 #[derive(Component)]
-#[component(on_add = ComputeShaderReadback::<S>::on_add )]
 pub struct ComputeShaderReadback<S: ComputeShader> {
     pub _marker: PhantomData<S>,
 }
@@ -122,12 +134,9 @@ impl<S: ComputeShader> Default for ComputeShaderReadback<S> {
     }
 }
 impl<S: ComputeShader> ComputeShaderReadback<S> {
-    /// Add readback observer when this component is added.
-    fn on_add(mut world: DeferredWorld, context: HookContext) {
-        world
-            .commands()
-            .entity(context.entity)
-            .observe(S::on_readback);
+    /// Spawn the readback observer on startup.
+    fn spawn(mut commands: Commands) {
+        commands.spawn(Self::default()).observe(S::on_readback);
     }
     /// Insert GPU readback component only when the shader is ready.
     fn on_shader_ready(
@@ -152,7 +161,7 @@ impl<S: ComputeShader> ComputeShaderReadback<S> {
     }
 }
 
-/// Trait to implement for your custom shader.
+/// Trait to implement for a custom compute shader.
 pub trait ComputeShader: AsBindGroup + Clone + Debug + FromWorld + ExtractResource {
     /// Asset path or handle to the shader.
     fn compute_shader() -> ShaderRef;
@@ -278,7 +287,7 @@ impl<S: ComputeShader> FromWorld for ComputePipeline<S> {
     }
 }
 
-/// Label to identify the node in the render graph
+/// Label to identify the node in the render graph.
 #[derive(Debug, Clone, RenderLabel)]
 struct ComputeNodeLabel<S: ComputeShader> {
     _marker: PhantomData<S>,
@@ -298,6 +307,13 @@ impl<S: ComputeShader> PartialEq for ComputeNodeLabel<S> {
 impl<S: ComputeShader> Eq for ComputeNodeLabel<S> {}
 impl<S: ComputeShader> Hash for ComputeNodeLabel<S> {
     fn hash<H: Hasher>(&self, _state: &mut H) {}
+}
+impl<S: ComputeShader> ComputeNodeLabel<S> {
+    fn remove_on_complete(mut render_graph: ResMut<RenderGraph>, state: Res<ComputeNodeState<S>>) {
+        if state.status == ComputeNodeStatus::Completed {
+            let _ = render_graph.remove_node(Self::default());
+        }
+    }
 }
 
 /// The node that will execute the compute shader.
