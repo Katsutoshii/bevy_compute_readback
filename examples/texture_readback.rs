@@ -1,4 +1,5 @@
 //! Example to demonstrate reading texture data back to CPU from a compute shader.
+//! Press Space to cycle through different inputs to the shader to demonstrate reactivity.
 use bevy::{
     asset::RenderAssetUsages,
     ecs::world::DeferredWorld,
@@ -27,6 +28,7 @@ fn main() {
         ))
         .insert_resource(ClearColor(Color::BLACK))
         .add_systems(Startup, setup)
+        .add_systems(Update, reload_on_space)
         .run();
 }
 
@@ -42,12 +44,35 @@ fn setup(mut commands: Commands, shader: Res<CustomComputeShader>) {
     ));
 }
 
+/// Update the inputs to the shader on Space.
+fn reload_on_space(
+    inputs: Res<ButtonInput<KeyCode>>,
+    mut shader: ResMut<CustomComputeShader>,
+    mut count: Local<usize>,
+) {
+    if inputs.just_pressed(KeyCode::Space) {
+        info!("space pressed");
+        *count = (*count + 1) % 4;
+        shader.color = match *count {
+            0 => LinearRgba::new(1.0, 1.0, 1.0, 1.0),
+            1 => LinearRgba::new(0.2, 1.0, 1.0, 1.0),
+            2 => LinearRgba::new(1.0, 0.2, 1.0, 1.0),
+            3 => LinearRgba::new(1.0, 1.0, 0.2, 1.0),
+            _ => unreachable!(),
+        };
+    }
+}
+
 // Custom compute shader input.
 #[derive(AsBindGroup, Resource, Clone, Debug, ExtractResource)]
 pub struct CustomComputeShader {
     // Texture for the GPU to write to.
     #[storage_texture(0, image_format=Rgba32Float, access=WriteOnly)]
     texture: Handle<Image>,
+
+    // Input color
+    #[uniform(1)]
+    pub color: LinearRgba,
 
     // Texture where data will be read back to from GPU.
     // We only need this because we want to render the read back texture.
@@ -73,6 +98,7 @@ impl ComputeShader for CustomComputeShader {
         let image_handle = world.resource::<Self>().readback_texture.clone();
         if let Some(image) = world.resource_mut::<Assets<Image>>().get_mut(&image_handle) {
             image.data = Some(trigger.event().0.clone());
+            info!("Readback");
             if let Ok(DynamicImage::ImageRgba32F(rgba)) = image.clone().try_into_dynamic() {
                 let _ = rgba.save("target/readback_output.png");
             }
@@ -102,6 +128,7 @@ impl FromWorld for CustomComputeShader {
         Self {
             texture: world.add_asset(image.clone()),
             readback_texture: world.add_asset(image),
+            color: LinearRgba::new(1.0, 1.0, 1.0, 1.0),
         }
     }
 }

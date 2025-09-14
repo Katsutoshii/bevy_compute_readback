@@ -14,8 +14,8 @@ use bevy_ecs::{
     query::With,
     resource::Resource,
     schedule::{
-        IntoScheduleConfigs,
-        common_conditions::{not, resource_changed, resource_exists},
+        Condition, IntoScheduleConfigs,
+        common_conditions::{not, resource_changed, resource_exists, resource_exists_and_changed},
     },
     system::{Commands, Query, Res, ResMut, StaticSystemParam},
     world::{DeferredWorld, FromWorld, World},
@@ -23,7 +23,7 @@ use bevy_ecs::{
 use bevy_math::UVec3;
 use bevy_render::{
     ExtractSchedule, MainWorld, Render, RenderApp, RenderSet,
-    extract_resource::{ExtractResource, ExtractResourcePlugin},
+    extract_resource::{ExtractResource, ExtractResourcePlugin, extract_resource},
     gpu_readback::{Readback, ReadbackComplete},
     render_graph::{self, RenderGraph, RenderLabel},
     render_resource::{
@@ -76,6 +76,12 @@ impl<S: ComputeShader> Plugin for ComputeShaderPlugin<S> {
             .init_resource::<ComputeNodeState<S>>()
             .add_systems(
                 ExtractSchedule,
+                ComputeNode::<S>::reset_on_change
+                    .run_if(resource_exists_and_changed::<S>)
+                    .after(extract_resource::<S>),
+            )
+            .add_systems(
+                ExtractSchedule,
                 ComputeNodeState::<S>::extract_to_main
                     .run_if(resource_changed::<ComputeNodeState<S>>),
             )
@@ -84,7 +90,9 @@ impl<S: ComputeShader> Plugin for ComputeShaderPlugin<S> {
                 (S::prepare_bind_group)
                     .chain()
                     .in_set(RenderSet::PrepareBindGroups)
-                    .run_if(not(resource_exists::<ComputeShaderBindGroup<S>>)),
+                    .run_if(
+                        not(resource_exists::<ComputeShaderBindGroup<S>>).or(resource_changed::<S>),
+                    ),
             );
 
         // Add the compute node as a top level node to the render graph
@@ -332,6 +340,23 @@ impl<S: ComputeShader> Default for ComputeNode<S> {
             count: 0,
             _marker: PhantomData,
         }
+    }
+}
+impl<S: ComputeShader> ComputeNode<S> {
+    /// When the input shader is changed, reset.
+    fn reset_on_change(
+        mut render_graph: ResMut<RenderGraph>,
+        mut state: ResMut<ComputeNodeState<S>>,
+    ) {
+        let Ok(node) = render_graph.get_node_mut::<Self>(ComputeNodeLabel::<S>::default()) else {
+            return;
+        };
+        node.count = 0;
+        node.status = ComputeNodeStatus::Loading;
+        *state = ComputeNodeState {
+            status: ComputeNodeStatus::Loading,
+            ..Default::default()
+        };
     }
 }
 impl<S: ComputeShader> render_graph::Node for ComputeNode<S> {
