@@ -5,16 +5,14 @@ use std::{
     marker::PhantomData,
 };
 
-use bevy::app::{App, Plugin, Startup};
-use bevy::asset::DirectAssetAccessExt;
 use bevy::ecs::{
     component::Component,
     entity::Entity,
-    observer::Trigger,
+    observer::On,
     query::With,
     resource::Resource,
     schedule::{
-        Condition, IntoScheduleConfigs,
+        IntoScheduleConfigs,
         common_conditions::{not, resource_changed, resource_exists, resource_exists_and_changed},
     },
     system::{Commands, Query, Res, ResMut, StaticSystemParam},
@@ -22,13 +20,13 @@ use bevy::ecs::{
 };
 use bevy::math::UVec3;
 use bevy::render::{
-    ExtractSchedule, MainWorld, Render, RenderApp, RenderSet,
+    ExtractSchedule, MainWorld, Render, RenderApp,
     extract_resource::{ExtractResource, ExtractResourcePlugin, extract_resource},
     gpu_readback::{Readback, ReadbackComplete},
     render_graph::{self, RenderGraph, RenderLabel},
     render_resource::{
         AsBindGroup, BindGroup, BindGroupLayout, CachedComputePipelineId, CachedPipelineState,
-        ComputePassDescriptor, ComputePipelineDescriptor, PipelineCache, ShaderRef,
+        ComputePassDescriptor, ComputePipelineDescriptor, PipelineCache,
     },
     renderer::{RenderContext, RenderDevice},
 };
@@ -36,6 +34,12 @@ use bevy::state::{
     app::AppExtStates,
     state::{NextState, OnEnter, States},
 };
+use bevy::{
+    app::{App, Plugin, Startup},
+    render::RenderSystems,
+    shader::ShaderRef,
+};
+use bevy::{asset::DirectAssetAccessExt, ecs::schedule::SystemCondition};
 
 /// Plugin to create all the required systems for using a custom compute shader.
 pub struct ComputeShaderPlugin<S: ComputeShader> {
@@ -89,7 +93,7 @@ impl<S: ComputeShader> Plugin for ComputeShaderPlugin<S> {
                 Render,
                 (S::prepare_bind_group)
                     .chain()
-                    .in_set(RenderSet::PrepareBindGroups)
+                    .in_set(RenderSystems::PrepareBindGroups)
                     .run_if(
                         not(resource_exists::<ComputeShaderBindGroup<S>>).or(resource_changed::<S>),
                     ),
@@ -196,7 +200,7 @@ pub trait ComputeShader: AsBindGroup + Clone + Debug + FromWorld + ExtractResour
         None
     }
     /// Optional processing on readback. Could write back to the CPU buffer, etc.
-    fn on_readback(_trigger: Trigger<ReadbackComplete>, mut _world: DeferredWorld) {}
+    fn on_readback(_trigger: On<ReadbackComplete>, mut _world: DeferredWorld) {}
 }
 
 /// Stores prepared bind group data for the compute shader.
@@ -284,7 +288,7 @@ impl<S: ComputeShader> FromWorld for ComputePipeline<S> {
             push_constant_ranges: Vec::new(),
             shader: shader.clone(),
             shader_defs: Vec::new(),
-            entry_point: "main".into(),
+            entry_point: Some("main".into()),
             zero_initialize_workgroup_memory: false,
         });
         Self {

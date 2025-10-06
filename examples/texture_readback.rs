@@ -7,10 +7,9 @@ use bevy::{
     render::{
         extract_resource::ExtractResource,
         gpu_readback::{Readback, ReadbackComplete},
-        render_resource::{
-            AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat, TextureUsages,
-        },
+        render_resource::{AsBindGroup, Extent3d, TextureDimension, TextureFormat, TextureUsages},
     },
+    shader::ShaderRef,
 };
 use bevy_compute_readback::{ComputeShader, ComputeShaderPlugin, ReadbackLimit};
 use image::DynamicImage;
@@ -92,12 +91,12 @@ impl ComputeShader for CustomComputeShader {
         Some(Readback::texture(self.texture.clone()))
     }
     /// Handle readback events.
-    fn on_readback(trigger: Trigger<ReadbackComplete>, mut world: DeferredWorld) {
+    fn on_readback(trigger: On<ReadbackComplete>, mut world: DeferredWorld) {
         // Copy readback buffer to the render texture so we can see it.
         // Then save it as a PNG.
         let image_handle = world.resource::<Self>().readback_texture.clone();
         if let Some(image) = world.resource_mut::<Assets<Image>>().get_mut(&image_handle) {
-            image.data = Some(trigger.event().0.clone());
+            image.data = Some(trigger.event().data.clone());
             info!("Readback");
             if let Ok(DynamicImage::ImageRgba32F(rgba)) = image.clone().try_into_dynamic() {
                 let _ = rgba.save("target/readback_output.png");
