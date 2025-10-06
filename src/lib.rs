@@ -5,9 +5,9 @@ use std::{
     marker::PhantomData,
 };
 
-use bevy_app::{App, Plugin, Startup};
-use bevy_asset::DirectAssetAccessExt;
-use bevy_ecs::{
+use bevy::app::{App, Plugin, Startup};
+use bevy::asset::DirectAssetAccessExt;
+use bevy::ecs::{
     component::Component,
     entity::Entity,
     observer::Trigger,
@@ -20,8 +20,8 @@ use bevy_ecs::{
     system::{Commands, Query, Res, ResMut, StaticSystemParam},
     world::{DeferredWorld, FromWorld, World},
 };
-use bevy_math::UVec3;
-use bevy_render::{
+use bevy::math::UVec3;
+use bevy::render::{
     ExtractSchedule, MainWorld, Render, RenderApp, RenderSet,
     extract_resource::{ExtractResource, ExtractResourcePlugin, extract_resource},
     gpu_readback::{Readback, ReadbackComplete},
@@ -32,7 +32,7 @@ use bevy_render::{
     },
     renderer::{RenderContext, RenderDevice},
 };
-use bevy_state::{
+use bevy::state::{
     app::AppExtStates,
     state::{NextState, OnEnter, States},
 };
