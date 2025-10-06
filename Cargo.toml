@@ -1,7 +1,7 @@
 [package]
 edition = "2024"
 name = "bevy_compute_readback"
-version = "0.1.3"
+version = "0.2.0"
 authors = ["Josiah Putman <joshikatsu@gmail.com>"]
 description = "Simplify compute shaders with readback in the Bevy game engine."
 documentation = "https://docs.rs/bevy_compute_readback/latest/bevy_compute_readback"
