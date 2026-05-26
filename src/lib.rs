@@ -1,45 +1,48 @@
 //! Library to simplify compute shader readbacks.
+
 use std::{
     fmt::Debug,
     hash::{Hash, Hasher},
     marker::PhantomData,
 };
 
-use bevy::ecs::{
-    component::Component,
-    entity::Entity,
-    observer::On,
-    query::With,
-    resource::Resource,
-    schedule::{
-        IntoScheduleConfigs,
-        common_conditions::{not, resource_changed, resource_exists, resource_exists_and_changed},
-    },
-    system::{Commands, Query, Res, ResMut, StaticSystemParam},
-    world::{DeferredWorld, FromWorld, World},
-};
-use bevy::math::UVec3;
-use bevy::render::{
-    ExtractSchedule, MainWorld, Render, RenderApp,
-    extract_resource::{ExtractResource, ExtractResourcePlugin, extract_resource},
-    gpu_readback::{Readback, ReadbackComplete},
-    render_graph::{self, RenderGraph, RenderLabel},
-    render_resource::{
-        AsBindGroup, BindGroup, BindGroupLayout, CachedComputePipelineId, CachedPipelineState,
-        ComputePassDescriptor, ComputePipelineDescriptor, PipelineCache,
-    },
-    renderer::{RenderContext, RenderDevice},
-};
-use bevy::state::{
-    app::AppExtStates,
-    state::{NextState, OnEnter, States},
-};
 use bevy::{
     app::{App, Plugin, Startup},
-    render::RenderSystems,
+    asset::DirectAssetAccessExt,
+    ecs::schedule::SystemCondition,
+    ecs::{
+        component::Component,
+        entity::Entity,
+        observer::On,
+        query::With,
+        resource::Resource,
+        schedule::{
+            IntoScheduleConfigs,
+            common_conditions::{
+                not, resource_changed, resource_exists, resource_exists_and_changed,
+            },
+        },
+        system::{Commands, Query, Res, ResMut, StaticSystemParam},
+        world::{DeferredWorld, FromWorld, World},
+    },
+    math::UVec3,
+    render::{
+        ExtractSchedule, MainWorld, Render, RenderApp, RenderSystems,
+        extract_resource::{ExtractResource, ExtractResourcePlugin, extract_resource},
+        gpu_readback::{Readback, ReadbackComplete},
+        render_graph::{self, RenderGraph, RenderLabel},
+        render_resource::{
+            AsBindGroup, BindGroup, BindGroupLayoutDescriptor, CachedComputePipelineId,
+            CachedPipelineState, ComputePassDescriptor, ComputePipelineDescriptor, PipelineCache,
+        },
+        renderer::{RenderContext, RenderDevice},
+    },
     shader::ShaderRef,
+    state::{
+        app::AppExtStates,
+        state::{NextState, OnEnter, States},
+    },
 };
-use bevy::{asset::DirectAssetAccessExt, ecs::schedule::SystemCondition};
 
 /// Plugin to create all the required systems for using a custom compute shader.
 pub struct ComputeShaderPlugin<S: ComputeShader> {
@@ -183,12 +186,18 @@ pub trait ComputeShader: AsBindGroup + Clone + Debug + FromWorld + ExtractResour
     fn prepare_bind_group(
         mut commands: Commands,
         pipeline: Res<ComputePipeline<Self>>,
+        pipeline_cache: Res<PipelineCache>,
         render_device: Res<RenderDevice>,
         input: Res<Self>,
         param: StaticSystemParam<<Self as AsBindGroup>::Param>,
     ) {
         let bind_group = input
-            .as_bind_group(&pipeline.layout, &render_device, &mut param.into_inner())
+            .as_bind_group(
+                &pipeline.layout,
+                &render_device,
+                &pipeline_cache,
+                &mut param.into_inner(),
+            )
             .unwrap();
         commands.insert_resource(ComputeShaderBindGroup::<Self> {
             bind_group: bind_group.bind_group,
@@ -268,14 +277,14 @@ impl<S: ComputeShader> ComputeNodeState<S> {
 /// Defines the pipeline for the compute shader.
 #[derive(Resource)]
 pub struct ComputePipeline<S: ComputeShader> {
-    pub layout: BindGroupLayout,
+    pub layout: BindGroupLayoutDescriptor,
     pipeline: CachedComputePipelineId,
     _marker: PhantomData<S>,
 }
 impl<S: ComputeShader> FromWorld for ComputePipeline<S> {
     fn from_world(world: &mut World) -> Self {
         let render_device = world.resource::<RenderDevice>();
-        let layout = S::bind_group_layout(render_device);
+        let layout = S::bind_group_layout_descriptor(render_device);
         let shader = match S::compute_shader() {
             ShaderRef::Default => panic!("Must define compute_shader."),
             ShaderRef::Handle(handle) => handle,

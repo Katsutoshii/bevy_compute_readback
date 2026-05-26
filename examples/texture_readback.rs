@@ -1,5 +1,6 @@
 //! Example to demonstrate reading texture data back to CPU from a compute shader.
 //! Press Space to cycle through different inputs to the shader to demonstrate reactivity.
+//! `cargo run --example texture_readback`
 use bevy::{
     asset::RenderAssetUsages,
     ecs::world::DeferredWorld,
@@ -50,7 +51,7 @@ fn reload_on_space(
     mut count: Local<usize>,
 ) {
     if inputs.just_pressed(KeyCode::Space) {
-        info!("space pressed");
+        info!("Space pressed");
         *count = (*count + 1) % 4;
         shader.color = match *count {
             0 => LinearRgba::new(1.0, 1.0, 1.0, 1.0),

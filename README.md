@@ -60,4 +60,6 @@ See `examples` for a working demo.
 
 | bevy | bevy_compute_readback |
 | ---- | --------------------- |
+| 0.18 | 0.18.0                |
+| 0.17 | 0.2.0                 |
 | 0.16 | 0.1.2                 |
