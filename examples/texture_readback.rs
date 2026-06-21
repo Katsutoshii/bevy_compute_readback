@@ -96,7 +96,7 @@ impl ComputeShader for CustomComputeShader {
         // Copy readback buffer to the render texture so we can see it.
         // Then save it as a PNG.
         let image_handle = world.resource::<Self>().readback_texture.clone();
-        if let Some(image) = world.resource_mut::<Assets<Image>>().get_mut(&image_handle) {
+        if let Some(mut image) = world.resource_mut::<Assets<Image>>().get_mut(&image_handle) {
             image.data = Some(trigger.event().data.clone());
             info!("Readback");
             if let Ok(DynamicImage::ImageRgba32F(rgba)) = image.clone().try_into_dynamic() {
